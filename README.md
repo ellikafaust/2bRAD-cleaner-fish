@@ -1,2 +1,2 @@
 # S.melopsPopGen
-Using 2b-RAD to investigate population struckture in Symphodus melops in Scandinavia
+This repository contains the code I've been using to analyse 2b-RAD data from Symphodus melops (Corkwing Wrassse) to investigate population struckture in Scandinavia
