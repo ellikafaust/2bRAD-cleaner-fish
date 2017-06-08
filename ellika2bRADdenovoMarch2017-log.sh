@@ -1,17 +1,17 @@
 # Trimming - Cutting out restriction fragments	from the reads
-../scripts/2bRAD_trim_launch.pl fastq sampleID=1 > ../scripts/trims.sh
+~/scripts/2bRAD_trim_launch.pl fastq sampleID=1 > ../scripts/trims.sh
 # open file and add # !/bin/bash to show it's a bash file before running!
-sh ../scripts/trims.sh
+sh ~/scripts/trims.sh
 
 #Filtering - trims out low quality read ends
-../scripts/2bRAD_filt_launch.sh
+~/scripts/2bRAD_filt_launch.sh
 # open file and add # !/bin/bash to show it's a bash file before running!
-sh ../scripts/filt.sh
+sh ~/scripts/filt.sh
 
 # Uniquing - Removs duplicates, only keeping unique reads
-../scripts/2bRAD_uni_launch.sh
+~/scripts/2bRAD_uni_launch.sh
 # open file and add # !/bin/bash to show it's a bash file before running!
-sh ../scripts/unii.sh
+sh ~/scripts/unii.sh
 
 # Merges all the .uni files to a file called Merged.uniq, where count information is stored about how many reads each unique sequence represents for each individual (used for genotyping later)
 #also creates file called “mergedUniqTags.fasta”, which only contains the sequences (used for clustering)
