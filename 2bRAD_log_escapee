@@ -1,0 +1,424 @@
+#All scripts are placed in a directory named "scripts" and data in working directory
+ 
+#Trimming - Cutting out restriction fragments	from the reads
+~/scripts/2bRAD_trim_launch.pl fastq sampleID=1 > ../scripts/trims.sh
+# open file and add # !/bin/bash to show it's a bash file before running!
+sh ~/scripts/trims.sh
+
+#Filtering - trims out low quality read ends
+~/scripts/2bRAD_filt_launch.sh
+# open file and add # !/bin/bash to show it's a bash file before running!
+sh ~/scripts/filt.sh
+
+# Uniquing - Removs duplicates, only keeping unique reads
+~/scripts/2bRAD_uni_launch.sh
+# open file and add # !/bin/bash to show it's a bash file before running!
+sh ~/scripts/unii.sh
+
+# Merges all the .uni files to a file called Merged.uniq, where count information is stored about how many reads each unique sequence represents for each individual (used for genotyping later)
+#also creates file called “mergedUniqTags.fasta”, which only contains the sequences (used for clustering)
+~/scripts/mergeUniq.pl uni >Merged.uniq
+
+#Clustering with cd-hit-est:
+#identity threshold -c 91 %, which translates to about 3 nucleotide substitutions allowed.
+~/scripts/cd-hit-est -i mergedUniqTags.fasta -o cdh_alltags.fas -aL 1 -aS 1 -g 1 -c 0.91 -M 0 -T 0
+
+#Merging the clustering output into alltags.ul:
+#Merges clusters with the counts data for each individual (stored in Merged.uniq), in order to be able to genotype.
+#alltags.ul contains information about loci, tags (alleles), the sequences, and counts for all individuals 
+#revcom=reverse complement of sequence.
+~/scripts/uniq2loci.pl Merged.uniq cdh_alltags.fas.clstr cdh_alltags.fas minDP=20 >alltags.ul
+
+#Calling SNPs with haplocall_denovo, using filter settings recommended by Mischa Matz (cranked up as high_mem ran out of memory with default settings):
+#Mindp= Minimum depth for calling a homozygote (5), 
+#ind= Number of individuals should have the allele to call it (2)
+# hetero=fraction heterozygotes allowed (0.8)
+#This will output information about the number of loci and alleles 
+#on the screen, and will save genotype data both for SNPs and 
+#haplotypes in two separate files in the .vcf file format (variant call format).
+#-----better to use qsub than qlogin!
+~/scripts/haplocall_denovo.pl alltags.ul mindp=5 ind=2 hetero=0.8 aobs=20 strbias=20 found=0.25
+
+# OUTPUT:
+#	considering reads seen at least 5 times:
+#	2078064862 reads processed
+#	Thu Apr 13 21:01:57 2017
+#	2517957	total tags
+#	337564	pass depth cutoff 20
+#	310520	pass strand bias cutoff 5
+#	reading start: Thu Apr 13 21:17:39 2017
+#	allele filters start: Thu Apr 13 21:25:47 2017
+#	locus filters start: Thu Apr 13 21:33:11 2017
+#	VCF writing start: Thu Apr 13 21:34:40 2017
+#	Haplo-VCF writing start: Thu Apr 13 21:37:20 2017
+#	all done: Thu Apr 13 21:39:31 2017
+#
+#	Input parameters (parameter names):
+#	clipping 0 bases from read ends (clip)
+#	must see an allele at least 20 times (aobs)
+#	strand bias cutoff (strbias): 20
+#	allele bias cutoff (abias): 10
+#	keep loci genotyped in at least 0.25 fraction of all samples (found)
+#	must see an allele in at least 2 individual(s) (ind)
+#	keep monomorphic tags? (mono): 0 
+#	maximum acceptable fracton of heterozygotes at a locus (hetero): 0.8
+#	minimum depth to call a homozygote (mindp): 5
+#
+#		file alltags.ul
+#
+#	-----------------
+#
+#	Allele filters:
+#
+#	310515	raw alleles
+#	310515	with 20 or more reads
+#	309005	in 2 or more samples
+#	283553	pass strand bias cutoff 20
+#	118612	pass allele bias cutoff 10
+#
+#	--------------------
+#
+#	Locus filters:
+#
+#	97257	total
+#	97257	remain after applying allele filters
+#	95403	have less than 0.8 fraction of heterozygotes
+#	94250 	with not more than 2 alleles per individual
+#	79582	genotyped in 25% of samples
+#	12067	polymorphic
+
+
+# make a tab-delimited table of clone (technical replicate) sample pairs called clonepairs.tab
+#nano clonepairs.tab
+
+##edit accordingly 
+#	FKH01a	FKH01b
+#	FKH02a	FKH02b
+#	FKH03a	FKH03b
+#	FKH05a	FKH05b
+#	FKH43a	FKH43b
+#	FKH48a	FKH48b
+#	FKH50a	FKH50b
+#	FKH51a	FKH51b
+#	SMAU17a	SMAU17b
+#	SMAU18a	SMAU18b
+#	SMAU19a	SMAU19b
+#	SMAU20a	SMAU20b
+#	SMAU37a	SMAU37b
+#	SMAU38a	SMAU38b
+#	SMAU39a	SMAU39b
+#	SMAU40a	SMAU40b
+#	SMID17a	SMID17b
+#	SMID18a	SMID18b
+#	SMID19a	SMID19b
+#	SMID20a	SMID20b
+#	SMID37a	SMID37b
+#	SMID38a	SMID38b
+#	SMID39a	SMID39b
+#	SMID40a	SMID40b
+#	SMKB17a	SMKB17b
+#	SMKB18a	SMKB18b
+#	SMKB19a	SMKB19b
+#	SMKB20a	SMKB20b
+#	SMKB37a	SMKB37b
+#	SMKB38a	SMKB38b
+#	SMKB39a	SMKB39b
+#	SMKB40a	SMKB40b
+#	SMST17a	SMST17b
+#	SMST18a	SMST18b
+#	SMST19a	SMST19b
+#	SMST20a	SMST20b
+#	SMST37a	SMST37b
+#	SMST38a	SMST38b
+#	SMST39a	SMST39b
+#	SMST40a	SMST40b
+#	SMTF17a	SMTF17b
+#	SMTF18a	SMTF18b
+#	SMTF19a	SMTF19b
+#	SMTF20a	SMTF20b
+#	SMTF37a	SMTF37b
+#	SMTF38a	SMTF38b
+#	SMTF39a	SMTF39b
+#	SMTF40a	SMTF40b
+
+
+# using technical replicate in order to optimize dataset using a machine-learning algorithm.
+# Each of the following filtering steps creates a vcf output file that is a modified and renamed version of the input file.
+
+# extracting "true snps" subset (reproducible across replicates)
+#We use the script called “replicatesMatch.pl” to encorporate the replicate information into a new vcf file called 
+~/scripts/replicatesMatch.pl vcf=alltags.ul_Variants_count20_ab10_sb20_clip0.vcf replicates=clonepairs.tab polyonly=1 > vqsr.denovo.vcf
+
+#OUTPUT:
+#	13235 total SNPs
+#	2098 pass hets and match filters
+#	1180 show non-reference alleles
+#	513 have alterantive alleles in at least 2 replicate pair(s)
+#	513 have matching heterozygotes in at least 0 replicate pair(s)
+#	513 polymorphic
+#	513 written
+ 
+
+
+# non-parametric recalibration,  creates a composite filter and determine the setting that gives maximum "gain"	
+~/scripts/recalibrateSNPs.pl vcf=alltags.ul_Variants_count20_ab10_sb20_clip0.vcf true=vqsr.denovo.vcf -nosb -notp >denovo.recal.vcf
+
+#OUTPUT::
+#	AB quantiles:
+#	1	13
+#	5	21
+#	10	25
+#	15	29
+#	20	31
+#	30	36
+#	40	39
+#	50	41
+#	60	44
+#	70	47
+#	80	50
+#	90	54
+#
+#	SB quantiles:
+#	1	38
+#	5	50
+#	10	57
+#	15	60
+#	20	65
+#	30	70
+#	40	73
+#	50	77
+#	60	81
+#	70	84
+#	80	89
+#	90	92
+#
+#	DP quantiles:
+#	1	2562	61554
+#	5	2942	38406
+#	10	3331	28999
+#	15	3463	25312
+#	20	3651	23621
+#	30	4032	17940
+#	40	4419	15427
+#	50	4936	13091
+#	60	5593	11717
+#	70	6044	10612
+#	80	6585	9590
+#	90	7289	8640
+#
+#	TP quantiles:
+#	1	1	36
+#	5	2	36
+#	10	2	35
+#	15	3	34
+#	20	4	33
+#	30	5	32
+#	40	7	30
+#	50	8	29
+#	60	9	28
+#	70	11	27
+#	80	12	25
+#	90	17	20
+#
+#	JOINT quantiles:
+#	1	0.00500
+#	5	0.01500
+#	10	0.04000
+#	15	0.06000
+#	20	0.08000
+#	30	0.12000
+#	40	0.20000
+#	50	0.25000
+#	60	0.35000
+#	70	0.42000
+#	80	0.54000
+#	90	0.70000
+#
+#	------------------------
+#	13.14%	at qual <1 (12.14% gain)
+#	27.69%	at qual <5 (22.69% gain)
+#	41.81%	at qual <10 (31.81% gain)
+#	49.14%	at qual <15 (34.14% gain)
+#	54.67%	at qual <20 (34.67% gain)
+#	61.12%	at qual <30 (31.12% gain)
+##	------------------------		
+
+
+# Replicates-based recalibration showed best gain at 20, hence minQ 20:
+# also, minimum genotype quality should be minGQ20, biallelic only, present in 50% of samples:	
+~/scripts/vcftools --vcf denovo.recal.vcf --minQ 20 --minGQ 20 --min-alleles 2 --max-alleles 2 --max-missing 0.5 --recode --recode-INFO-all --out denovo.filt0
+
+# OUTPUT::
+#	After filtering, kept 288 out of 288 Individuals
+#	After filtering, kept 5872 out of a possible 13235 Sites
+
+
+# Discarding loci with too many heterozygotes, which are likely lumped paralogs
+~/scripts/hetfilter.pl vcf=denovo.filt0.recode.vcf >denovo.hetfilt.vcf
+
+# OUTPUT::
+#	5872 total loci
+#	0 dropped because fraction of missing genotypes exceeded 0.5
+#	8 dropped because fraction of heterozygotes exceeded 0.75
+#	5864 written
+
+# Thinning SNP dataset - leaving one snp per tag. by default, it will leave the SNP with the highest minor allele frequency
+~/scripts/thinner.pl vcf=denovo.hetfilt.vcf > thinDenov.vcf
+
+# OUTPUT::
+#	5864 total loci
+#	0 loci skipped because they were closer than 40
+#	5200 loci selected
+
+# evaluating accuracy (the most important one is Heterozygote discovery rate, last column) based on replicates
+~/scripts/repMatchStats.pl vcf=thinDenov.vcf replicates=clonepairs.tab 
+
+# OUTPUT::
+#	pair	gtyped	match	[ 00	01	11 ]	HetMatch	HomoHetMismatch	HetNoCall	HetsDiscoveryRate
+#	FKH01a:FKH01b	5066	4698(92.7%)	 [64%	29%	8% ]	1343	309	4	0.90	
+#	FKH02a:FKH02b	5023	4586(91.3%)	 [64%	29%	7% ]	1336	375	11	0.87	
+#	FKH03a:FKH03b	5076	4328(85.3%)	 [60%	35%	5% ]	1502	607	27	0.83	
+#	FKH05a:FKH05b	5021	3597(71.6%)	 [60%	35%	5% ]	1253	579	281	0.74	
+#	FKH43a:FKH43b	5080	4178(82.2%)	 [51%	48%	2% ]	1989	812	35	0.82	
+#	FKH48a:FKH48b	5059	4390(86.8%)	 [72%	24%	4% ]	1065	626	9	0.77	
+#	FKH50a:FKH50b	5078	4585(90.3%)	 [73%	23%	4% ]	1042	436	4	0.83	
+#	FKH51a:FKH51b	5113	4122(80.6%)	 [58%	40%	2% ]	1664	882	38	0.78	
+#	SMAU17a:SMAU17b	4928	4588(93.1%)	 [63%	28%	9% ]	1281	101	20	0.95	
+#	SMAU18a:SMAU18b	4671	4440(95.1%)	 [64%	28%	8% ]	1237	99	36	0.95	
+#	SMAU19a:SMAU19b	4541	4265(93.9%)	 [64%	28%	8% ]	1200	179	51	0.91	
+#	SMAU20a:SMAU20b	4732	4515(95.4%)	 [63%	29%	8% ]	1290	133	32	0.94	
+#	SMAU37a:SMAU37b	5040	4845(96.1%)	 [66%	26%	8% ]	1248	175	6	0.93	
+#	SMAU38a:SMAU38b	4985	4333(86.9%)	 [63%	29%	8% ]	1262	263	24	0.90	
+#	SMAU39a:SMAU39b	5076	4696(92.5%)	 [66%	27%	7% ]	1256	295	1	0.89	
+#	SMAU40a:SMAU40b	4701	4436(94.4%)	 [64%	28%	8% ]	1251	158	32	0.93	
+#	SMID17a:SMID17b	5098	4842(95.0%)	 [67%	26%	7% ]	1264	107	10	0.96	
+#	SMID18a:SMID18b	4899	4593(93.8%)	 [66%	26%	7% ]	1212	121	31	0.94	
+#	SMID19a:SMID19b	5020	3980(79.3%)	 [63%	34%	3% ]	1349	813	64	0.75	
+#	SMID20a:SMID20b	4824	4607(95.5%)	 [67%	25%	8% ]	1174	149	23	0.93	
+#	SMID37a:SMID37b	4899	4601(93.9%)	 [66%	28%	6% ]	1293	207	18	0.92	
+#	SMID38a:SMID38b	4990	4617(92.5%)	 [66%	27%	7% ]	1241	208	16	0.92	
+#	SMID39a:SMID39b	4866	4365(89.7%)	 [66%	27%	7% ]	1182	266	25	0.89	
+#	SMID40a:SMID40b	4827	4488(93.0%)	 [66%	27%	8% ]	1205	215	15	0.91	
+#	SMKB17a:SMKB17b	5008	4761(95.1%)	 [73%	21%	6% ]	996	166	4	0.92	
+#	SMKB18a:SMKB18b	4887	4571(93.5%)	 [73%	22%	5% ]	995	168	12	0.92	
+#	SMKB19a:SMKB19b	4963	4700(94.7%)	 [74%	20%	6% ]	954	198	7	0.90	
+#	SMKB20a:SMKB20b	4949	4738(95.7%)	 [74%	21%	6% ]	983	134	12	0.93	
+#	SMKB37a:SMKB37b	5021	4355(86.7%)	 [73%	22%	6% ]	951	191	34	0.89	
+#	SMKB38a:SMKB38b	5080	4714(92.8%)	 [72%	22%	6% ]	1044	147	7	0.93	
+#	SMKB39a:SMKB39b	5014	4622(92.2%)	 [74%	21%	5% ]	982	225	6	0.89	
+#	SMKB40a:SMKB40b	5035	4141(82.2%)	 [72%	24%	4% ]	976	370	30	0.83	
+#	SMST17a:SMST17b	5007	4544(90.8%)	 [73%	22%	5% ]	1016	327	15	0.86	
+#	SMST18a:SMST18b	4909	4429(90.2%)	 [74%	21%	5% ]	942	242	21	0.88	
+#	SMST19a:SMST19b	4867	4466(91.8%)	 [74%	22%	5% ]	975	287	18	0.86	
+#	SMST20a:SMST20b	4815	4124(85.6%)	 [73%	25%	2% ]	1011	581	43	0.76	
+#	SMST37a:SMST37b	4860	4385(90.2%)	 [73%	23%	4% ]	1010	399	39	0.82	
+#	SMST38a:SMST38b	4958	4430(89.4%)	 [74%	22%	5% ]	955	241	23	0.88	
+#	SMST39a:SMST39b	4946	4522(91.4%)	 [75%	21%	4% ]	972	393	17	0.83	
+#	SMST40a:SMST40b	4763	4527(95.0%)	 [73%	21%	5% ]	971	235	15	0.89	
+#	SMTF17a:SMTF17b	4992	4646(93.1%)	 [74%	21%	6% ]	959	186	15	0.91	
+#	SMTF18a:SMTF18b	4818	4526(93.9%)	 [74%	21%	6% ]	938	104	20	0.94	
+#	SMTF19a:SMTF19b	4871	4588(94.2%)	 [75%	20%	5% ]	920	223	11	0.89	
+#	SMTF20a:SMTF20b	4844	4634(95.7%)	 [73%	22%	5% ]	1015	163	19	0.92	
+#	SMTF37a:SMTF37b	5042	4487(89.0%)	 [72%	25%	3% ]	1137	505	9	0.82	
+#	SMTF38a:SMTF38b	4798	4475(93.3%)	 [74%	22%	4% ]	975	266	21	0.87	
+#	SMTF39a:SMTF39b	5014	4522(90.2%)	 [73%	23%	5% ]	1030	315	17	0.86	
+#	SMTF40a:SMTF40b	5016	4391(87.5%)	 [74%	21%	5% ]	928	340	26	0.84	
+#
+#	------------------------
+#	hets called homos depth: 
+#	lower 25%	29
+#	median		49
+#	upper 75%	77
+
+
+# creating a file of replicates and other poorly sequenced samples (low sites number/high-homozygosity)
+~/scripts/vcftools --vcf thinDenov.vcf --het --out denovo.out
+
+#OPEN denovo.out.het AND NOTE ALL INDIVIDUALS WITH LOW N_SITES, ADD THESE TO clones2remove
+#nano clones2remove
+
+#edit accordingly 
+#	FKH01b
+#	FKH02b
+#	FKH03b
+#	FKH05b
+#	FKH43b
+#	FKH48b
+#	FKH50b
+#	FKH51b
+#	SMAU17b
+#	SMAU18b
+#	SMAU19b
+#	SMAU20b
+#	SMAU37b
+#	SMAU38b
+#	SMAU39b
+#	SMAU40b
+#	SMID17b
+#	SMID18b
+#	SMID19b
+#	SMID20b
+#	SMID37b
+#	SMID38b
+#	SMID39b
+#	SMID40b
+#	SMKB17b
+#	SMKB18b
+#	SMKB19b
+#	SMKB20b
+#	SMKB37b
+#	SMKB38b
+#	SMKB39b
+#	SMKB40b
+#	SMST17b
+#	SMST18b
+#	SMST19b
+#	SMST20b
+#	SMST37b
+#	SMST38b
+#	SMST39b
+#	SMST40b
+#	SMTF17b
+#	SMTF18b
+#	SMTF19b
+#	SMTF20b
+#	SMTF37b
+#	SMTF38b
+#	SMTF39b
+#	SMTF40b
+#
+
+
+# creating thinned dataset without clones and poorly covered individuals
+~/scripts/vcftools --vcf thinDenov.vcf --remove clones2remove --recode --recode-INFO-all --out west
+
+# OUTPUT
+#	Excluding individuals in 'exclude' list
+#	After filtering, kept 240 out of 288 Individuals
+#	After filtering, kept 5200 out of a possible 5200 Sites
+
+# additional filtering on final datasets max misson 0.7 then minor allele frequency 0.01 
+~/scripts/vcftools --vcf west.recode.vcf --max-missing 0.7 --recode --recode-INFO-all --out west.filt
+
+# OUTPUT
+#	After filtering, kept 240 out of 240 Individuals
+#	After filtering, kept 5002 out of a possible 5200 Sites
+
+~/scripts/vcftools --vcf west.filt.recode.vcf --maf 0.01 --recode --recode-INFO-all --out west.filt.maf0.01
+
+# OUTPUT
+#	After filtering, kept 240 out of 240 Individuals
+#	After filtering, kept 4372 out of a possible 5002 Sites
+
+# Outputting genotype matrix:
+#This option outputs the genotypes as a large matrix. 
+#Three files are produced. The first, with suffix ".012", 
+#contains the genotypes of each individual on a separate line. 
+#Genotypes are represented as 0, 1 and 2, where the number 
+#represent that number of non-reference alleles. 
+#Missing genotypes are represented by -1. The second file, 
+#with suffix ".012.indv" details the individuals included in the 
+#main file. The third file, with suffix ".012.pos" details the 
+#site locations included in the main file.
+
+~/scripts/vcftools --vcf west.filt.maf0.01.recode.vcf --out west_maf0.01_SNPs --012
