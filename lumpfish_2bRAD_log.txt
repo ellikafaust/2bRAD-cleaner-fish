@@ -1,0 +1,363 @@
+# Commands used to analyse the lumpfish project
+# This is a log from following the 2bRAD walkthrough found here https://github.com/z0on/2bRAD_denovo/blob/master/2bRAD_README.sh
+
+# ==============
+# installations
+
+git clone https://github.com/broadinstitute/picard.git
+cd picard/
+./gradlew jar
+
+# ==============================================
+#      Genome reference placement (if you have it)
+
+# will need bowtie2, samtools, and picard. They are pre-installed as modules on TACC; you will have to install them if you don't have these modules on your cluster.
+
+
+# --------------------
+
+# index with concatonated genome
+# making fake chromosomes to reduce memory load during GATK
+# need bowtie2 and samtools for indexing
+
+concatFasta.pl fasta=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1.0.fasta num=30
+
+# concatonated genome
+export GENOME_FASTA=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1_cc.fasta
+export GENOME_DICT=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1_cc.dict
+
+echo 'module load bowtie
+module load samtools
+bowtie2-build $GENOME_FASTA $GENOME_FASTA
+samtools faidx $GENOME_FASTA
+java -jar $HOME/bin/picard.jar CreateSequenceDictionary R=$GENOME_FASTA  O=$GENOME_DICT' > index
+
+# execute all commands
+
+#==================
+
+
+# ==================
+# Copying the data to the right place, removing read pairs and concatenating two files for each sample.
+
+# copies ALL files (not folders) in directory and subdirectories, can also use pattern to only find specific files | grep -i *.gz |
+find $WORK/SE-2189/190821_A00181_0107_BHF2CHDRXX/ -type f | xargs -i cp {} ./data/
+
+
+rm *_R2_001.fastq.gz
+gunzip *.gz
+
+# to concatonate the two files
+
+for name in SE-*_L001_R1_001.fastq; do
+    other="${name/_L001/_L002}"
+    cat "$name" "$other" > concat_"$name"
+done
+
+# rename files
+rename concat_SE-2189-C C *
+rename _L001_R1_001.fastq .fastq *
+
+rename SE-2189-C C *
+rename _L001_R1_001.fastq .fastq *
+
+# ==================
+# Quality control:
+
+# Trimming low-quality bases:
+
+## NOTE: Had to create new launcher and trim2bRAD_dedup.pl scripts to account for no 2nd inline barcode. ##
+# remove pcr duplicates
+2bRAD_trim_launch_dedup_PDW.pl fastq > trims
+
+# execute all commands
+
+
+# =============== filtering out adapter sequences
+# do we have expected number of *.tr0 files created?
+ls -l *.tr0 | wc -l
+
+# quality filtering using cutadapt (see installation above)
+module load cutadapt
+
+# removing reads with qualities at ends less than Q15
+>trimse
+for file in *.tr0; do
+echo "cutadapt --format fastq -q 15,15 -m 36 -o ${file/.tr0/}.trim $file > ${file}_trimlog.txt" >> trimse;
+done
+
+# execute all commands in trimse file (serial or parallel using Launcher, if your system allows)
+
+
+# do we have expected number of *.trim files created?
+ls -l *.trim | wc -l
+
+#==============
+# Mapping reads to reference (reads-derived fake one, or real) and formatting bam files
+
+# for denovo: map reads to fake genome with bowtie2:
+# GENOME_FASTA=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1_cc.fasta
+# >maps
+# for F in `ls *.trim`; do
+# echo "bowtie2 --no-unal -x $GENOME_FASTA -U $F -S $F.sam">>maps
+# done
+
+# for reference-based: mapping with --local option, enables clipping of mismatching ends (guards against deletions near ends of RAD tags)
+GENOME_FASTA=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1_cc.fasta
+GENOME_DICT=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1_cc.dict
+2bRAD_bowtie2_launch.pl '\.trim$' $GENOME_FASTA > maps
+
+# execute all commands written to maps...
+
+
+idev -A tagmap # to use idev mode
+
+>alignmentRates
+for F in `ls *trim`; do
+M=`grep -E '^[ATGCN]+$' $F | wc -l | grep -f - maps.e* -A 4 | tail -1 | perl -pe 's/maps\.e\d+-|% overall alignment rate//g'` ;
+echo "$F.sam $M">>alignmentRates;
+done
+
+logout # To logout from idev mode
+#---------
+
+#=================================================
+# adding read groups, validating sams, sorting, indexing sams and converting to bams.
+#-------------------------------
+GENOME_FASTA=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1_cc.fasta
+GENOME_DICT=$WORK/lumpfish_genome/C_lumpus_AG_NMBU_1_cc.dict
+
+# add read AddReadGroups using script from Kim Brugger
+> addrg
+for i in *.trim.bt2.sam; do
+	newfile="$(basename $i .fastq.trim.bt2.sam)"
+	echo "AddReadGroup.pl -i $i -o ${newfile}.fastq.trim.bt2.rg.sam -r ${newfile} -s ${newfile} -l ${newfile} -p Illumina -c NGI" >> addrg;
+done
+
+# execute all commands
+
+
+# validating SAMs
+
+>validateSams
+>validationsummary.out
+>validationsummary.err
+for i in *.rg.sam; do
+	echo "java -jar $HOME/bin/picard.jar ValidateSamFile I=$i MODE=SUMMARY 1>>validationsummary.out 2>>validationsummary.err" >>validateSams;
+done
+
+# execute all commands
+
+
+# remove old sam files after checking you have all the files
+ll *rg.sam | wc -l
+ll *bt2.sam | wc -l
+rm *bt2.sam
+
+# next stage is compressing, sorting and indexing the SAM files, so they become BAM files:
+module load samtools
+>s2b
+for file in *.trim.bt2.rg.sam; do
+ echo "samtools sort -O bam -o ${file/.sam/}.bam $file && samtools index ${file/.sam/}.bam" >>s2b;
+done
+
+# execute all commands listed in s2b file
+
+
+ls *bam | wc -l  # should be the same number as number of trim files
+
+#this script is for validating sorted bam files using Picard
+
+>validateBams
+>bam_validationsummary.out
+>bam_validationsummary.err
+for i in *.bam; do
+	echo "java -jar $HOME/bin/picard.jar ValidateSamFile I=$i MODE=SUMMARY 1>>bam_validationsummary.out 2>>bam_validationsummary.err" >>validateBams;
+done
+
+# execute all commands
+
+
+ls *bam | wc -l  # should be the same number as number of trim files
+
+# BAM files are the input into various genotype calling / popgen programs, this is the main interim result of the analysis. Archive them.
+
+# removed bad individuals before genotyping (CLNF03-*)
+
+#==========================
+
+#        G  A  T  K
+
+# ("hard-call" genotyping, use only for high-coverage data, >10x after deduplication)
+
+ls *.bam > bams
+
+
+# writing command script with SLURM header (some fields might be different on your cluster, contact your IT people!)
+>unig2
+echo '#!/bin/bash
+#SBATCH -J gt
+#SBATCH -n 40
+#SBATCH -N 1
+#SBATCH -p development
+#SBATCH -o gt.o%j
+#SBATCH -e gt.e%j
+#SBATCH -t 2:00:00
+#SBATCH -A tagmap
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=ellika.faust@gu.se
+java -jar ~/scripts/GenomeAnalysisTK_3_8.jar -T UnifiedGenotyper \
+-R lumpfish_genome/C_lumpus_AG_NMBU_1_cc.fasta -nt 40 -nct 1 \
+--genotype_likelihoods_model SNP \' >unig2
+cat bams | perl -pe 's/(\S+\.bam)/-I $1 \\/' >> unig2
+echo '-o primary.vcf ' >> unig2
+
+# execute commands
+
+#----------
+# Variant quality score recalibration (VQSR)
+
+# making a tab-delimited table of clone (replicate) sample pairs
+nano clonepairs.tab
+# paste names of bams that are clone pairs, tab delimited, one pair per line; for example
+# Ctl-O , enter, Ctl-X
+
+# extracting "true snps" subset (reproducible across replicates)
+# parameter hetPairs can vary depending on replication scheme (3 is good when you have triplicates)
+replicatesMatch.pl vcf=primary.vcf replicates=clonepairs.tab hetPairs=2 max.het=0.5 > vqsr.vcf
+
+# 22849 total SNPs
+# 14236 pass hets and match filters
+# 3456 show non-reference alleles
+# 3456 have alterantive alleles in at least 1 replicate pair(s)
+# 760 have matching heterozygotes in at least 2 replicate pair(s)
+# 760 polymorphic
+# 760 written
+
+# determining transition-transversion ratio for true snps (will need it for tranche calibration)
+vcftools --vcf vqsr.vcf --TsTv-summary
+# Ts/Tv ratio: 1.474  # put your actual number into the next code chunk, --target_titv
+
+
+# creating recalibration models
+export GENOME_REF=lumpfish_genome/C_lumpus_AG_NMBU_1_cc.fasta
+
+java -jar ~/scripts/GenomeAnalysisTK_3_8.jar -T VariantRecalibrator \
+-R $GENOME_REF -input primary.vcf -nt 12 \
+-resource:repmatch,known=true,training=true,truth=true,prior=30  vqsr.vcf \
+-an QD -an MQ -an FS -mode SNP --maxGaussians 6 \
+--target_titv 1.474 -tranche 85.0 -tranche 90.0 -tranche 95.0 -tranche 99.0 -tranche 100 \
+-recalFile primary.recal -tranchesFile recalibrate.tranches -rscriptFile recalibrate_plots.R
+
+# examine output and recalibrate*.pdf files - see which tranche to choose the one before TsTv dropoff
+# next chunk assumes we are choosing tranche 99
+
+# applying recalibration (99% tranche)
+
+java -jar ~/scripts/GenomeAnalysisTK_3_8.jar -T ApplyRecalibration \
+-R $GENOME_REF -input primary.vcf -nt 12 \
+--ts_filter_level 99.0 -mode SNP \
+-recalFile primary.recal -tranchesFile recalibrate.tranches -o recal.vcf
+
+
+#---------------
+# Applying filters
+
+# identifying poorly genotyped individuals
+vcftools --vcf recal.vcf --het
+# look at number of sites genotyped per individual (4th column):
+cat out.het
+# see if some samples are much lower in the number of sites than others
+# for example, if you want to remove samples showing less than 40000 sites:
+# cat out.het | awk '$4<40000' | cut -f 1  > underSequenced
+# cat underSequenced
+
+# applying filter and selecting polymorphic biallelic loci genotyped in 90% or more individuals
+# (harsh genotyping rate cutoff is strongly recommended for best quality and to avoid RAD loci affected by null
+# alleles because of mutations in restriction site)
+vcftools --vcf recal.vcf --remove-filtered-all --max-missing 0.9  --min-alleles 2 --max-alleles 2 --recode-INFO-all --recode --out filt
+
+# selecting only polymorphic sites (they all are in denovo pipeline!) and sites with no excess heterozygosity
+grep -E "#|0/1|0/0.+1/1|1/1.+0/0" filt.recode.vcf >polymorphs.vcf
+hetfilter.pl vcf=polymorphs.vcf maxhet=0.5 >best.vcf
+
+#---------------
+# Final touches
+
+# genotypic match between pairs of replicates (the most telling one is the last one, HetsDiscoveryRate - fraction of correctly called heterozygotes; if it is under 90% perhaps use fuzzy genotyping with ANGSD - see above)
+repMatchStats.pl vcf=best.vcf replicates=clonepairs.tab
+
+# looking at per-individual inbreeding
+# positive - excess false homozygotes (due to poor coverage); negative - false heterozygotes (possibly lumped paralogs)
+vcftools --vcf best.vcf --het
+cat out.het
+
+# create a file listing clones (and low-site/high-homozygosity individuals, if any) to remove
+cat clonepairs.tab | cut -f 2 >clones2remove
+
+# removing clones and badly genotyped ones
+vcftools --vcf best.vcf --remove clones2remove --recode --recode-INFO-all --out final
+
+# thinning for Fst / PCA / ADMIXTURE  (choosing one SNP per tag with max allele frequency):
+thinner.pl infile=final.recode.vcf criterion=maxAF >thinMaxaf27022020.vcf
+
+# 7780 total loci
+# 7301 loci selected
+
+
+#-------------------------------------------------
+# renaming and filtering out unwanted individuals
+#-------------------------------------------------
+
+grep -n '#C' thinMaxaf27022020.vcf | cut -f10-800 | sed 's/\t/\n/g' > indv
+
+sed -i.backup 's/_S.*$//g; s/a$//g' indv
+
+sed 's/[0-9]\{2\}$/_/g' indv > pop
+paste pop indv | sed 's/\t//g' > pop_indv_name
+paste indv.backup pop_indv_name > rename_indv
+
+bcftools reheader -s rename_indv thinMaxaf27022020.vcf > thinMaxaf27022020_renamed.vcf
+
+
+# restoring original contig names and coordinates:
+retabvcf.pl vcf=thinMaxaf27022020_renamed.vcf tab=C_lumpus_AG_NMBU_1_cc.tab > final_retab_2802202_rename.vcf
+
+
+# more filtering in R
+R
+library(vcfR)
+library(adegenet)
+library(poppr)
+vcf <- read.vcfR("final_retab_28022020_rename.vcf")
+gen_cl <- vcfR2genind(vcf)
+
+indNames(gen_cl)
+gen_sm_id <- data.frame(do.call(rbind, strsplit(indNames(gen_cl), "_", fixed=TRUE)))
+unique(gen_sm_id$X1)
+#read name files
+# x <- read_delim(DATA_ID, delim = "_", col_names = F)
+#add population info to genind
+pop(gen_cl) <- gen_sm_id$X1
+
+#sort from west to east
+# create a list of genind objects
+sep_pop <- seppop(gen_cl)
+# create genind object in desired order
+gen_cl_order <- repool(sep_pop$CLMA, sep_pop$CLCA, sep_pop$CLGU, sep_pop$CLGN, sep_pop$CLIC, sep_pop$CLOH, sep_pop$CLEC, sep_pop$CLNF, sep_pop$CLNS, sep_pop$CLBS)
+gen_cl_order$pop
+
+#filtering bad loci
+#filter maf 0.1 and minimum of 2 individuals
+gen_sm <- informloci(gen_cl_order)
+
+#cutoff value: 2.10526315789474 % ( 2 samples ).
+#MAF         : 0.01
+
+# Found 2908 uninformative loci
+# ============================
+# 2431 loci found with a cutoff of 2 samples
+# 2906 loci found with MAF < 0.01 :
+
+
+# Final number of SNPs 4393
